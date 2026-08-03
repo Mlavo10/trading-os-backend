@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Prisma's schema requires directUrl to be a separate env var name, but for
+  // this project both DATABASE_URL and DIRECT_URL should hold the SAME value:
+  // Supabase's direct (non-pooled) connection string on port 5432. Don't use
+  // the "Transaction pooler" string (port 6543) here — pgbouncer's transaction
+  // mode doesn't support the locks Prisma Migrate needs.
+  directUrl = env("DIRECT_URL")
+}
+
+// Mirrors the Supabase Auth user (id = Supabase auth.users.id, a UUID).
+// We don't store passwords here — Supabase Auth owns credentials.
+model User {
+  id        String   @id // Supabase auth UUID, passed in via verified JWT
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  trades    Trade[]
+  pages     JournalPage[]
+  settings  UserSettings?
+}
+
+model UserSettings {
+  id              String  @id @default(uuid())
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  darkMode        Boolean @default(true)
+  defaultRiskPct  Float   @default(0.75)
+  baseCurrency    String  @default("USD")
+  weeklyGoalTrades Int    @default(3)
+}
+
+model Trade {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  instrument  String
+  direction   String   // "Long" | "Short"
+  session     String   // "Asia" | "London" | "New York"
+  strategy    String
+
+  entry       Float?
+  stopLoss    Float?
+  takeProfit  Float?
+  riskPct     Float?
+  positionSize Float?
+
+  pnl         Float    @default(0)
+  rMultiple   Float    @default(0)
+  grade       String?  // "A+" | "A" | "B" | "C" | "F"
+
+  tags        String[] @default([])
+  checklist   Json?    // [{ label: string, done: boolean }]
+
+  reflection  String?
+  lessons     String?
+  psychology  Json?    // { confidence: 0-10, patience: 0-10, discipline: 0-10, stress: 0-10 }
+
+  entryAt     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  screenshots Screenshot[]
+
+  @@index([userId, entryAt])
+}
+
+model Screenshot {
+  id        String   @id @default(uuid())
+  tradeId   String
+  trade     Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  storagePath String // path inside the Supabase Storage bucket
+  caption   String?
+  createdAt DateTime @default(now())
+}
+
+// Notion-style workspace pages (Trading Plan, Market Outlook, Playbook, etc.)
+model JournalPage {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   Json     // block-based content, e.g. [{ type: "heading", text }, { type: "checklist", items }]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
